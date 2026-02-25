@@ -64,21 +64,20 @@ whisper-server --host 0.0.0.0 --port 2022 --model models/ggml-base.bin
 
 ### 3. Add WezTerm integration
 
-Copy or symlink the plugin:
-
-```bash
-# Create WezTerm plugin directory if needed
-mkdir -p ~/.config/wezterm
-
-# Symlink the plugin
-ln -s /path/to/sound-of-silence/wezterm/sound-of-silence.lua ~/.config/wezterm/sound-of-silence.lua
-```
-
 Add to your `~/.wezterm.lua`:
 
 ```lua
+-- Point Lua to the plugin (adjust path to where you cloned the repo)
+package.path = package.path .. ";" .. os.getenv("HOME") .. "/path/to/sound-of-silence/wezterm/?.lua"
+
 local sos = require("sound-of-silence")
 sos.apply(config)
+```
+
+Or symlink the plugin to a directory WezTerm already searches:
+
+```bash
+ln -s /path/to/sound-of-silence/wezterm/sound-of-silence.lua ~/.config/wezterm/sound-of-silence.lua
 ```
 
 That's it. **Cmd+Shift+V** to toggle recording, **ESC** to cancel.
