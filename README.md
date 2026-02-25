@@ -4,8 +4,9 @@ Push-to-talk voice input for your terminal. Press a hotkey, speak, and your word
 
 No cloud APIs required. All speech processing happens on your machine.
 
-<!-- TODO: Add screenshot of the recording animation -->
-<!-- ![Recording Animation](demo.png) -->
+<p align="center">
+  <img src="demo.svg" alt="Recording animation in WezTerm status bar" width="720">
+</p>
 
 ## How it works
 
