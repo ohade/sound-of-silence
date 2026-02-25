@@ -5,7 +5,7 @@ Push-to-talk voice input for your terminal. Press a hotkey, speak, and your word
 No cloud APIs required. All speech processing happens on your machine.
 
 <p align="center">
-  <img src="demo.gif" alt="Demo: press Cmd+Shift+V to record, speak, press again to transcribe" width="720">
+  <img src="demo-v2.gif" alt="Demo: press Cmd+Shift+V to record, speak, press again to transcribe" width="720">
 </p>
 
 ## How it works

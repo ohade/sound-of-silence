@@ -193,7 +193,7 @@ for blink in range(6):
     add(img, 600)
 
 # ── Save ───────────────────────────────────────────────────────────
-output = os.path.join(os.path.dirname(os.path.dirname(__file__)), "demo.gif")
+output = os.path.join(os.path.dirname(os.path.dirname(__file__)), "demo-v2.gif")
 frames[0].save(
     output,
     save_all=True,
