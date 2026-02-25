@@ -107,7 +107,7 @@ durations = []
 
 def add(img, ms):
     frames.append(img.copy())
-    durations.append(max(ms // 2, 20))
+    durations.append(max(ms // 4, 20))
 
 
 # ══════════════════════════════════════════════════════════════════════
