@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# sound-of-silence — Toggle voice recording and transcribe via whisper.cpp (local) or OpenAI Whisper API
+# First call starts recording, second call stops and transcribes.
+#
+# Usage:
+#   sound-of-silence          # Toggle: start recording or stop + transcribe
+#   sound-of-silence start    # Explicitly start recording
+#   sound-of-silence stop     # Explicitly stop recording and transcribe
+#   sound-of-silence cancel   # Cancel recording without transcribing
+#   sound-of-silence status   # Check if currently recording
+#
+# Environment:
+#   STT_BASE_URL   Override whisper endpoint (default: auto-detect local:2022 or OpenAI)
+#   SOS_LANGUAGE    Transcription language (default: en)
+#   SOS_MODEL       Whisper model name (default: whisper-1)
+
+set -euo pipefail
+
+# --- Configuration (overridable via env) ---
+PID_FILE="${SOS_PID_FILE:-$HOME/.sound-of-silence.pid}"
+WAV_FILE="${SOS_WAV_FILE:-/tmp/sound-of-silence.wav}"
+LANGUAGE="${SOS_LANGUAGE:-en}"
+MODEL="${SOS_MODEL:-whisper-1}"
+REC_BIN="${SOS_REC_BIN:-$(command -v rec 2>/dev/null || echo /opt/homebrew/bin/rec)}"
+
+cleanup() {
+  rm -f "$PID_FILE" "$WAV_FILE"
+}
+
+is_recording() {
+  if [[ -f "$PID_FILE" ]]; then
+    local pid
+    pid=$(<"$PID_FILE")
+    if kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+stop_recording() {
+  local pid
+  pid=$(<"$PID_FILE")
+
+  # Stop the rec process gracefully (SIGINT lets rec finalize the WAV header)
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -INT "$pid" 2>/dev/null
+    # Wait for rec to finish writing the WAV file
+    for _ in $(seq 1 20); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    # Force kill if still running
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f "$PID_FILE"
+
+  # Verify we have audio
+  if [[ ! -f "$WAV_FILE" ]] || [[ ! -s "$WAV_FILE" ]]; then
+    echo "Error: No audio recorded" >&2
+    cleanup
+    exit 1
+  fi
+
+  # Determine STT endpoint: local whisper.cpp or OpenAI API
+  local stt_url="${STT_BASE_URL:-}"
+  local auth_header=""
+
+  if [[ -z "$stt_url" ]]; then
+    # Auto-detect: use local whisper.cpp if running, otherwise OpenAI
+    if curl -s --connect-timeout 1 http://127.0.0.1:2022/v1/models >/dev/null 2>&1; then
+      stt_url="http://127.0.0.1:2022/v1"
+    else
+      stt_url="https://api.openai.com/v1"
+      local api_key
+      api_key=$(security find-generic-password -a "$USER" -s "openai-api-key" -w 2>/dev/null) || {
+        echo "Error: No local whisper.cpp and no OpenAI API key in Keychain" >&2
+        cleanup
+        exit 1
+      }
+      auth_header="Authorization: Bearer $api_key"
+    fi
+  fi
+
+  # Transcribe audio
+  local response http_code
+  local -a curl_args=(
+    -s -w '\n%{http_code}'
+    "${stt_url}/audio/transcriptions"
+    -F file="@$WAV_FILE"
+    -F model="$MODEL"
+    -F language="$LANGUAGE"
+  )
+  [[ -n "$auth_header" ]] && curl_args+=(-H "$auth_header")
+  response=$(curl "${curl_args[@]}" 2>/dev/null)
+  http_code=$(echo "$response" | tail -1)
+  response=$(echo "$response" | sed '$d')
+
+  if [[ "$http_code" != "200" ]]; then
+    local err_msg
+    err_msg=$(echo "$response" | jq -r '.error.message // empty' 2>/dev/null)
+    echo "Error: Whisper API failed (HTTP $http_code): ${err_msg:-$response}" >&2
+    cleanup
+    exit 1
+  fi
+
+  local text
+  text=$(echo "$response" | jq -r '.text // empty' 2>/dev/null)
+
+  if [[ -z "$text" ]]; then
+    echo "Error: Empty transcription" >&2
+    cleanup
+    exit 1
+  fi
+
+  # Output transcribed text
+  echo -n "$text"
+
+  # Clean up wav file
+  rm -f "$WAV_FILE"
+}
+
+start_recording() {
+  # Clean up any leftover files
+  rm -f "$WAV_FILE"
+
+  # Start recording in background (fully detached so parent can exit)
+  nohup "$REC_BIN" "$WAV_FILE" rate 16k channels 1 </dev/null >/dev/null 2>&1 &
+  local pid=$!
+
+  # Verify the process started
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "Error: Failed to start recording" >&2
+    exit 1
+  fi
+
+  echo "$pid" > "$PID_FILE"
+  echo -n "Recording..."
+}
+
+cancel_recording() {
+  if ! is_recording; then
+    echo "No recording in progress" >&2
+    exit 1
+  fi
+  local pid
+  pid=$(<"$PID_FILE")
+  kill -INT "$pid" 2>/dev/null || true
+  cleanup
+  echo "Recording cancelled"
+}
+
+# --- Main logic ---
+case "${1:-toggle}" in
+  start)
+    if is_recording; then
+      echo "Already recording" >&2
+      exit 1
+    fi
+    start_recording
+    ;;
+  stop)
+    if ! is_recording; then
+      echo "No recording in progress" >&2
+      exit 1
+    fi
+    stop_recording
+    ;;
+  cancel)
+    cancel_recording
+    ;;
+  status)
+    if is_recording; then
+      echo "recording"
+    else
+      echo "idle"
+    fi
+    ;;
+  toggle)
+    if is_recording; then
+      stop_recording
+    else
+      start_recording
+    fi
+    ;;
+  *)
+    echo "Usage: sound-of-silence {start|stop|cancel|status|toggle}" >&2
+    exit 1
+    ;;
+esac
